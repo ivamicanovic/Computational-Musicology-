@@ -15,6 +15,8 @@ Column {data-width=650}
 
 ### Chart A
 
+Hi I write stuff about music
+
 ```{r}
 
 ```
