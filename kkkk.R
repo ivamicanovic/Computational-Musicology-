@@ -8,7 +8,7 @@ vertical_layout: fill
   
   ```{r setup, include=FALSE}
 library(flexdashboard)
-```
+  ```
 
 Column {data-width=650}
 -----------------------------------------------------------------------
@@ -17,7 +17,9 @@ Column {data-width=650}
   
   Commentary 123
 
-```{r}
+```  
+sample(10)
+
 ```
 
 Column {data-width=350}
@@ -25,10 +27,14 @@ Column {data-width=350}
   
   ### Chart B
   
-  ```{r}
+  ```  
+{r}
+
 ```
 
 ### Chart C
 
-```{r}
+```
+{r}
+
 ```
