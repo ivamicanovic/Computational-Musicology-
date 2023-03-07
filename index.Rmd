@@ -15,7 +15,7 @@ Column {data-width=650}
 
 ### Chart A
 
-Hi I write stuff about music
+Hi I write stuff about music JEE::PPoekek
 
 ```{r}
 
