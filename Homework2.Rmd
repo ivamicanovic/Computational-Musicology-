@@ -2,16 +2,26 @@
 title: "Differences Between Serbian and Croatian Pop Music"
 author: "Iva Micanovic"
 date: "2023-03-07"
-output: html_document
-flexdashboard::flex_dashboard:
-  storyboard: true
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    storyboard: true
 ---
+```{r setup, include=FALSE}
+library(flexdashboard)
+```
 Observable Differences {.storyboard}
 =========================================
   ### Frame 1
   
 ```{r} 
-
+library(tidyverse)
+library(spotifyr)
+library(ggplot2)
+library(dplyr)
+library(compmus) 
+library(purrr)
 serbian_pop <- spotifyr::get_playlist_audio_features("", "0KsWyEIsJpyZtP1PgQVvOD")
 croatian_pop <- spotifyr::get_playlist_audio_features("", "1iqFmUPFuPpBVgvrWccMVW")
 
