@@ -1,7 +1,5 @@
 ---
-title: "Differences Between Serbian and Croatian Pop Music"
-author: "Iva Micanovic"
-date: "2023-03-07"
+title: "Exploration of Balkan Music"
 output: 
   flexdashboard::flex_dashboard:
     orientation: columns
@@ -12,8 +10,168 @@ output:
 library(flexdashboard)
 ```
 
-### Observable Differences {.storyboard}
+### Exploring the Relationship Between Tempo and Popularity {.storyboard}
   
+```{r}
+library(tidyverse)
+library(spotifyr)
+library(ggplot2)
+library(dplyr)
+library(compmus) 
+library(purrr)
+
+serbian_pop <- spotifyr::get_playlist_audio_features("", "0KsWyEIsJpyZtP1PgQVvOD")
+croatian_pop <- spotifyr::get_playlist_audio_features("", "1iqFmUPFuPpBVgvrWccMVW")
+bulgarian_pop <- spotifyr::get_playlist_audio_features("", "0PjwUyYdSCNDccduWcaCUz")
+albanian_pop <- spotifyr::get_playlist_audio_features("", "22NJf0NlF0UEFGTUyO2zHE")
+greek_pop <- spotifyr::get_playlist_audio_features("", "41G4yjL1cUJblYk6HGRLpR")
+
+balkan_pop <-
+  bind_rows(
+    serbian_pop |> mutate(category = "Serbian Pop"),
+    croatian_pop |> mutate(category = "Croatian Pop"),
+    bulgarian_pop |> mutate(category = "Bulgarian Pop"),
+    albanian_pop |> mutate(category = "Albanian Pop"),
+    greek_pop |> mutate(category = "Greek Pop")
+  )
+
+balkan_pop |>                    
+  ggplot(                     
+    aes(
+      x = tempo,
+      y = track.popularity,
+      colour = danceability
+    )
+  ) +
+  geom_point() +              # Scatter plot.
+  geom_rug(linewidth = 0.1) + # Add 'fringes' to show data distribution.
+  facet_wrap(~ category) +    # Separate charts per playlist.
+  scale_x_continuous(         # Fine-tune the x axis.
+    limits = c(50, 250),
+    breaks = c(50, 100, 150, 200, 250),   # Use grid-lines for quadrants only.
+    minor_breaks = NULL       
+  ) +
+  scale_y_continuous(
+    limits = c(0, 70)
+  ) +
+  theme_light() +             # Use a simpler theme.
+  labs(                       # Make the titles nice.
+    x = "Tempo",
+    y = "Popularity",
+    colour = "Danceability"
+  )
+```
+-----------------------------------------------
+This plot demonstrates the relationship between tempo and popularity of songs stemming from different Balkan countries. It mainly aims to elaborate on the question of musical taste across the Balkans, with potential reference to the songs' danceability. Overall, when it comes to selected corpora for each country, it seems that the Serbian one is the most popular, as almost all songs have the popularity index between 40 and 60. However, in order to fully grasp the music preference of each country, the popularity index pf songs should be read in relation to other songs within the same country. 
+
+Tempo: there seems to be a clear trend in the south of the Balkans, specifically in Albania and Greece, for favoring the 90-100BPM tempo. This trend seems to drop when moving towards north to Croatia and Bulgaria, as tempo becomes more versatile across the corpus.In case of Bulgaria, Croatia and Serbia, most songs are found in the range between 100 and 150BPM.What is interesting also is that former Yugoslav countries, Croatia and Serbia, don't have as many songs in the range between 150 and 200BPM as the rest of the Balkans. Overall, the versatility in tempo among the most popular songs seems to coincide in the case of Croatia, Albania and Greece. 
+
+Danceability: if observed within each category, most popular songs more often score high on the danceability scale than not.
+
+#### Tempogram of the Most Popular Song in the Corpus "Sava i Dunav" 
+
+```{r}
+library(tidyverse)
+library(spotifyr)
+library(compmus)
+
+sava_i_dunav <- get_tidy_audio_analysis("64IFiUCsksRiHrUwfPKw6H")
+
+sava_i_dunav |>
+  tempogram(window_size = 8, hop_size = 1, cyclic = FALSE) |>
+  ggplot(aes(x = time, y = bpm, fill = power)) +
+  geom_raster() +
+  scale_fill_viridis_c(guide = "none") +
+  labs(x = "Time (s)", y = "Tempo (BPM)") +
+  theme_classic()
+```
+------------------------------------
+This tempogram showcases the song with the highest popularity index within the entire corpus - which is a song "Sava i Dunav" from the Serbian corpus. Although Spotify assigned this song a tempo of 109.989BPM, this tempogram showcases two of its tempo octaves, where the one around 220BPM seems to be the dominant one. Although a song with such a high tempo is not commonly recognized as that popular, this one may have gained such status due to it being a tempo outlier. 
+
+The tempo seems to be steady throughout the whole song, with two breaks corresponding to the absence of beat for 5 seconds. 
+
+
+
+### Chromograms of Representative Songs {.storyboard}
+
+#### Hanuma
+  
+```{r} 
+library(tidyverse)
+library(spotifyr)
+library(ggplot2)
+library(dplyr)
+library(compmus) 
+library(purrr)
+hanuma <-
+  get_tidy_audio_analysis("6MdJxslHXQkcLm2swuZrFb") |>
+  select(segments) |>
+  unnest(segments) |>
+  select(start, duration, pitches)
+
+hanuma |>
+  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
+  compmus_gather_chroma() |> 
+  ggplot(
+    aes(
+      x = start + duration / 2,
+      width = duration,
+      y = pitch_class,
+      fill = value
+    )
+  ) +
+  geom_tile() +
+  labs(x = "Time (s)", y = NULL, fill = "Magnitude") +
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+```
+ 
+------------------------------------------------------
+ 
+ These two chromograms showcase representative songs
+for each corpus. As observed, the song Hanuma
+showcases harmonic emphasis of the tonic and the fifth, 
+while the song Dani su bez broja apprear to have a more homogeneous 
+distribution of pitch, 
+with a steady employment of the 
+base note. 
+
+#### Dani su bez broja
+
+```{r} 
+library(tidyverse)
+library(spotifyr)
+library(ggplot2)
+library(dplyr)
+library(compmus) 
+library(purrr)
+dani_su_bez_broja <-
+  get_tidy_audio_analysis("441S5TX0FNPrRvVc4OZidx") |>
+  select(segments) |>
+  unnest(segments) |>
+  select(start, duration, pitches)
+
+dani_su_bez_broja |>
+  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
+  compmus_gather_chroma() |> 
+  ggplot(
+    aes(
+      x = start + duration / 2,
+      width = duration,
+      y = pitch_class,
+      fill = value
+    )
+  ) +
+  geom_tile() +
+  labs(x = "Time (s)", y = NULL, fill = "Magnitude") +
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+```
+
+### Observable Differences 
+
 ```{r} 
 library(tidyverse)
 library(spotifyr)
@@ -91,80 +249,3 @@ balkan_pop |>                    # Start with awards.
   )
 ```
 
-
-### Chromograms of Representative Songs {.storyboard}
-
-#### Hanuma
-  
-```{r} 
-library(tidyverse)
-library(spotifyr)
-library(ggplot2)
-library(dplyr)
-library(compmus) 
-library(purrr)
-hanuma <-
-  get_tidy_audio_analysis("6MdJxslHXQkcLm2swuZrFb") |>
-  select(segments) |>
-  unnest(segments) |>
-  select(start, duration, pitches)
-
-hanuma |>
-  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
-  compmus_gather_chroma() |> 
-  ggplot(
-    aes(
-      x = start + duration / 2,
-      width = duration,
-      y = pitch_class,
-      fill = value
-    )
-  ) +
-  geom_tile() +
-  labs(x = "Time (s)", y = NULL, fill = "Magnitude") +
-  theme_minimal() +
-  scale_fill_viridis_c()
-
-```
-
-#### Dani su bez broja
-
-```{r} 
-library(tidyverse)
-library(spotifyr)
-library(ggplot2)
-library(dplyr)
-library(compmus) 
-library(purrr)
-dani_su_bez_broja <-
-  get_tidy_audio_analysis("441S5TX0FNPrRvVc4OZidx") |>
-  select(segments) |>
-  unnest(segments) |>
-  select(start, duration, pitches)
-
-dani_su_bez_broja |>
-  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
-  compmus_gather_chroma() |> 
-  ggplot(
-    aes(
-      x = start + duration / 2,
-      width = duration,
-      y = pitch_class,
-      fill = value
-    )
-  ) +
-  geom_tile() +
-  labs(x = "Time (s)", y = NULL, fill = "Magnitude") +
-  theme_minimal() +
-  scale_fill_viridis_c()
-
-```
-
-***
-  
-  These two chromograms showcase representative songs
-for each corpus. As observed, the song Hanuma
-showcases harmonic emphasis of the tonic and the fifth, 
-while the song Dani su bez broja apprear to have a more homogeneous 
-distribution of pitch, 
-with a steady employment of the base note. 
