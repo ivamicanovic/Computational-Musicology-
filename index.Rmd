@@ -1,41 +1,844 @@
 ---
-title: "Exploration of Balkan Music"
+title: "Exploration of Balkan Popular Music"
 output: 
   flexdashboard::flex_dashboard:
     orientation: columns
     vertical_layout: fill
     storyboard: true
+editor_options: 
+  chunk_output_type: console
 ---
 ```{r setup, include=FALSE}
 library(flexdashboard)
+library(tidyverse)
+library(dplyr)
+library(tidyverse)
+library(tidymodels)
+library(ggdendro)
+library(spotifyr)
+library(cld2)
+library(caTools)
+library(caret)
+library(randomForest)
+library(gridExtra)
+library(compmus)
 ```
 
-### Exploring the Relationship Between Tempo and Popularity {.storyboard}
-  
+What can Spotify tell us about popular Balkan music?{.storyboard}
+==================================================================
+
+------------------------------------------------------------------
+
+### Overview of Audio Features
+
 ```{r}
-library(tidyverse)
-library(spotifyr)
-library(ggplot2)
-library(dplyr)
-library(compmus) 
-library(purrr)
-
-serbian_pop <- spotifyr::get_playlist_audio_features("", "0KsWyEIsJpyZtP1PgQVvOD")
-croatian_pop <- spotifyr::get_playlist_audio_features("", "1iqFmUPFuPpBVgvrWccMVW")
-bulgarian_pop <- spotifyr::get_playlist_audio_features("", "0PjwUyYdSCNDccduWcaCUz")
-albanian_pop <- spotifyr::get_playlist_audio_features("", "22NJf0NlF0UEFGTUyO2zHE")
+serbian_pop <- spotifyr::get_playlist_audio_features("", "16YmGXTlJgsXKjJ7vdlztn?si=acdd1a9c2a554f9a")
+bulgarian_pop <- spotifyr::get_playlist_audio_features("", "4YM5NoxSLOpl2VmJEwZBVY?si=92c58f2679f54bb8&nd=1")
+albanian_pop <- spotifyr::get_playlist_audio_features("", "3II2lVlx382McktFzK3hgj?si=5472e87df6984855")
 greek_pop <- spotifyr::get_playlist_audio_features("", "41G4yjL1cUJblYk6HGRLpR")
+turkish_pop <- spotifyr::get_playlist_audio_features("", "3gKQ6E9Ivq7jgF8YoIddmW?si=0b658b6b8d5e4c78")
 
-balkan_pop <-
-  bind_rows(
-    serbian_pop |> mutate(category = "Serbian Pop"),
-    croatian_pop |> mutate(category = "Croatian Pop"),
-    bulgarian_pop |> mutate(category = "Bulgarian Pop"),
-    albanian_pop |> mutate(category = "Albanian Pop"),
-    greek_pop |> mutate(category = "Greek Pop")
+serbian_pop$country <- "SERBIA"
+bulgarian_pop$country <- "BULGARIA"
+albanian_pop$country <- "ALBANIA"
+greek_pop$country <- "GREECE"
+turkish_pop$country <- "TURKEY"
+
+total_dataset <- rbind(serbian_pop, bulgarian_pop, albanian_pop, greek_pop, turkish_pop)
+
+total_dataset_clean_cluster <- subset(total_dataset, !duplicated(track.name)) %>%
+  drop_na(track.name) %>%
+  group_by(country) %>%
+  slice(sample(n(), 150))
+
+# Calculate means for each country and audio feature
+means_by_country <- total_dataset_clean_cluster %>%
+  group_by(country) %>%
+  summarize(across(c(energy, speechiness, acousticness, instrumentalness, liveness, valence, danceability), mean))
+
+# Reshape data for plotting
+means_by_country_melted <- reshape2::melt(means_by_country, id.vars = "country")
+
+# Create a grouped bar chart
+ggplot(means_by_country_melted, aes(x = variable, y = value, fill = country)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_brewer(palette = "Set1")  +
+  theme_minimal() +
+  labs(title = "Mean Levels of Audio Features by Country",
+       x = "Audio Features",
+       y = "Mean Value",
+       fill = "Country")
+```
+
+----------------------------------------------------------------------
+
+In this portfolio, I aim to explore the corpus of Balkan popular music, divided into five representative countries – Albania, Bulgaria, Greece, Serbia and Turkey. The corpus itself consists of groups of 150 songs each that are considered hits in their respective country and thereby stands to represent the selection of most popular songs from these countries. As a person who stems from Serbia, I was always compelled to investigate the musical landscape of the neighbouring countries and see to what extent is the taste in music homogeneous. The Balkan peninsula is unique in a sense that it comprises significantly different religions, traditions and cultures, spaced relatively close to each other, making its popular music both different in certain aspects and similar in others. Thus, I aim to answer the research question: to what extent does music of different Balkan countries manifest the homogeneity of taste across this region?
+
+The opening graph showcases the overview of audio features per country that will be further elaborated. The features that seem to be emphasised in the whole corpus are energy, valence and danceability, as all of these values score above 0.5 (apart from Turkey for valence). One of the first assumptions I would have made for this investigation is that music from the Balkans relies on dance, which this graph seems to demonstrate. Moreover, the values for danceability seems to be the most equal, which showcases that there is an overall similarity in musical taste with regards to this feature. When it comes to energy, Albania and Turkey seem to score lower than the other three, which can be explained by their religious and cultural proximity. On the other hand, with regards to valence, Turkey seems to score lower than the rest of the countries. Both Albania and Serbia, as well as Greece and Bulgaria have very similar scores for valence, which also somewhat demonstrates that there are correlates in the level of positiveness conveyed in music. 
+
+
+
+
+### Spotify Popularity Index
+
+```{r}
+
+serbian_pop <- spotifyr::get_playlist_audio_features("", "16YmGXTlJgsXKjJ7vdlztn?si=acdd1a9c2a554f9a")
+bulgarian_pop <- spotifyr::get_playlist_audio_features("", "4YM5NoxSLOpl2VmJEwZBVY?si=92c58f2679f54bb8&nd=1")
+albanian_pop <- spotifyr::get_playlist_audio_features("", "3II2lVlx382McktFzK3hgj?si=5472e87df6984855")
+greek_pop <- spotifyr::get_playlist_audio_features("", "41G4yjL1cUJblYk6HGRLpR")
+turkish_pop <- spotifyr::get_playlist_audio_features("", "3gKQ6E9Ivq7jgF8YoIddmW?si=0b658b6b8d5e4c78")
+
+serbian_pop$country <- "SERBIA"
+bulgarian_pop$country <- "BULGARIA"
+albanian_pop$country <- "ALBANIA"
+greek_pop$country <- "GREECE"
+turkish_pop$country <- "TURKEY"
+
+total_dataset <- rbind(serbian_pop, bulgarian_pop, albanian_pop, greek_pop, turkish_pop)
+total_dataset_clean_cluster %>%
+  filter(track.popularity != 0) %>%
+  ggplot(aes(x = country, y = track.popularity, fill = country)) +
+  geom_violin(alpha = 0.5) +
+  geom_boxplot(width = 0.1, fill = "white", color = "black", outlier.size = 1) +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal() +
+  labs(title = "Distribution of Popularity by Country", x = "Country", y = "Popularity")
+
+```
+
+-----------------------------------------------------------------------
+
+To further analyse my corpus, I aim to reference the Spotify Popularity Index. This number showcases the total streams of a song, how recently a song has been played and the frequency that a track has been played. This graph demonstrates the distribution of popularity across my corpus, showcasing that the corpus itself has songs with a wide range of popularity, according to Spotify. Here, I want to note that I aim to use information provided by this measure rather carefully, especially in the sense that it cannot really be compared across countries, given the variance in population among these countries, which would effect the number of streams and overall popularity of a given song. Thus, the aim is to use this measure to pick the songs with high popularity index  from each group individually for consequent track analysis. In this way,  the songs would more accurately demonstrate the potential differences and similarities of taste across this region altogether, as they seem to be more popular than other tracks. 
+
+
+
+
+
+How similar is Balkan popular music?{.storyboard}
+======================================================
+
+--------------------------------------------------------------------
+
+### Dendrogram 
+
+```{r}
+set.seed(134)
+
+# Remove duplicates and clean data, select 5 songs
+total_dataset_clean <- subset(total_dataset, !duplicated(track.name)) %>%
+  drop_na(track.name) %>%
+  group_by(country) %>%
+  slice(sample(n(), 5))
+
+# Create juice
+balkan_pop_juice <-
+  recipe(
+    track.name ~
+      danceability +
+      energy +
+      loudness +
+      speechiness +
+      acousticness +
+      instrumentalness +
+      liveness +
+      valence +
+      tempo,
+    data = total_dataset_clean 
+  ) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors()) %>%
+  prep(total_dataset_clean %>% mutate(track.name = str_trunc(track.name, 20))) %>%
+  juice() %>%
+  column_to_rownames("track.name")
+
+# since this is uniform, will just drop na cases
+balkan_pop_juice <- balkan_pop_juice |>
+  na.omit()
+
+balkan_pop_dist <- dist(balkan_pop_juice, method = "euclidean")
+
+# Changed this to complete FYI
+data_for_balkan_clustering <- balkan_pop_dist |>
+  hclust(method = "complete") |> # average for a balanced tree!
+  dendro_data()
+
+# Now add in where data comes from
+
+playlist_data_for_join <- total_dataset_clean %>%
+  select(track.name, playlist_name) %>%
+  mutate(label = str_trunc(track.name, 20))
+
+data_for_balkan_clustering$labels <- data_for_balkan_clustering$labels %>%
+  left_join(playlist_data_for_join)
+
+# Add factor so can use colouring!
+data_for_balkan_clustering$labels$label <- factor(data_for_balkan_clustering$labels$label)
+
+
+data_for_balkan_clustering |>
+  ggdendrogram() +
+  geom_text(data = label(data_for_balkan_clustering), aes(x, y,
+                                                          label=label,
+                                                          hjust=0,
+                                                          colour=country), size=3) +
+  coord_flip() +
+  scale_y_reverse(expand=c(0.2, 0)) +
+  theme(axis.line.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.y=element_blank(),
+        panel.background=element_rect(fill="white"),
+        panel.grid=element_blank()) +
+  labs(title = "Balkan Clustering") +
+  guides(
+    colour = guide_legend(
+      title = "Playlist"
+    )
   )
 
-balkan_pop |>                    
+```
+
+--------------------------------------------------------------------------
+
+This dendrogram showcases the clustering of five random songs taken from each corpus. The idea is to show whether these songs are more similar to other songs from their own country group based on Spotify features and if there were indeed clear musical indicators which would reflect differences between these groups. It seems that songs from the Greek corpus were most similar to each other, with almost all of them being clustered together. Overall, songs often appear clustered at least in pairs which is an indicator that some similarities can be detected. Yet, some songs from the same group could be divided rather early in the cluster tree, which is also an indicator that these songs in general are not all that different. Thus, this dendrogram captures the complexities and nuances that music of this region entails.  
+
+
+
+### Random Forest 
+
+```{r}
+
+library(flexdashboard)
+library(tidyverse)
+library(dplyr)
+library(tidyverse)
+library(tidymodels)
+library(ggdendro)
+library(spotifyr)
+library(cld2)
+library(caTools)
+library(caret)
+library(randomForest)
+library(gridExtra)
+library(compmus)
+
+serbian_pop <- spotifyr::get_playlist_audio_features("", "16YmGXTlJgsXKjJ7vdlztn?si=acdd1a9c2a554f9a")
+bulgarian_pop <- spotifyr::get_playlist_audio_features("", "4YM5NoxSLOpl2VmJEwZBVY?si=92c58f2679f54bb8&nd=1")
+albanian_pop <- spotifyr::get_playlist_audio_features("", "3II2lVlx382McktFzK3hgj?si=5472e87df6984855")
+greek_pop <- spotifyr::get_playlist_audio_features("", "41G4yjL1cUJblYk6HGRLpR")
+turkish_pop <- spotifyr::get_playlist_audio_features("", "3gKQ6E9Ivq7jgF8YoIddmW?si=0b658b6b8d5e4c78")
+
+serbian_pop$country <- "SERBIA"
+bulgarian_pop$country <- "BULGARIA"
+albanian_pop$country <- "ALBANIA"
+greek_pop$country <- "GREECE"
+turkish_pop$country <- "TURKEY"
+
+total_dataset <- rbind(serbian_pop, bulgarian_pop, albanian_pop, greek_pop, turkish_pop)
+
+# Clean data and select new songs
+total_dataset_clean_cluster <- subset(total_dataset, !duplicated(track.name)) %>%
+  drop_na(track.name) %>%
+  group_by(country) %>%
+  slice(sample(n(), 150))
+
+# Random forest clustering algorithm
+
+set.seed(123)
+split <- sample.split(total_dataset_clean_cluster$country, SplitRatio = 0.8)
+train_data <- total_dataset_clean_cluster[split, ]
+train_data$country <- as.factor(train_data$country)
+test_data <- total_dataset_clean_cluster[!split, ]
+
+
+model <- randomForest(country ~     
+                        danceability +
+                        energy +
+                        loudness +
+                        speechiness +
+                        acousticness +
+                        instrumentalness +
+                        liveness +
+                        valence +
+                        tempo, data = train_data)
+
+# Convert the factor variables in the test data set to the same levels as those in the train data set
+test_data$country <- factor(test_data$country, levels = levels(train_data$country))
+
+# Make predictions on the test data set
+predictions <- predict(model, test_data)
+
+# Create a confusion matrix
+conf_matrix <- confusionMatrix(predictions, test_data$country)
+
+
+# create confusion matrix
+cm <- confusionMatrix(predictions, test_data$country)
+
+# convert confusion matrix to data frame
+cm_df <- as.data.frame(cm$table)
+
+# create plot
+ggplot(data = cm_df, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(x = "Predicted Genre", y = "True Genre", title = "Confusion Matrix for Test Set (Random Forest)",
+       fill = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+-------------------------------------------------------------------------
+
+Continuing from the previous cluster analysis, this figure offers yet another insight into the uniqueness of each country’s music. 
+Random decision forests correct for decision trees' habit of overfitting to their training set.Thus, they generally outperform decision trees.
+Namely, this matrix showcases how well can a group be predicted based on the given audio features. As observed, it seems that music from Greece and Bulgaria can most frequently be assigned to the correct country group. That is in smaller extent true for all other groups. It is only the Albanian popular music that can most easily be mistaken for Serbian and Turkish. 
+
+
+
+ What can be said about loudness?{.storyboard}
+====================================================================
+
+-----------------------------------------------------------------
+
+### Loudness across countries 
+
+```{r}
+# Create a box plot
+ggplot(total_dataset_clean_cluster, aes(y = loudness, fill = country)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal() +
+  labs(title = "Box Plot of Loudness by Country",
+       x = "Country",
+       y = "Loudness (dB)")
+```
+
+---------------------------------------------------------------------
+
+This boxplot demonstrates the range of loudness in each country’s corpora. It somewhat mimics the relation observed on the energy feature from the very first figure. What is interesting is that most song from Bulgaria seem to be the loudest – as its least loud song is louder than all means of other countries. This may have contributed to the random forest matrix’s  enhanced classification of these songs. Overall, Serbia and Greece share a relatively similar mean loudness, as well as Alania and Turkey. This also somewhat reflects the cultural division of the Balkans. 
+
+
+
+What insights can we gain from observing different audio features on track level?{.storyboard}
+======================================================================
+
+------------------------------------------------------------------------
+
+### Chromagrams of Most Popular Songs
+
+```{r, fig.width = 10, fig.height = 12}
+
+library(tidyverse)
+library(spotifyr)
+library(compmus)
+library(gridExtra)
+
+# Serbia
+
+genge <-
+  get_tidy_audio_analysis("2d7aMgYuRKeGu5dzE4ZZaT") |>
+  select(segments) |>
+  unnest(segments) |>
+  select(start, duration, pitches)
+
+genge_chroma <- genge |>
+  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
+  compmus_gather_chroma() |> 
+  ggplot(
+    aes(
+      x = start + duration / 2,
+      width = duration,
+      y = pitch_class,
+      fill = value
+    )
+  ) +
+  geom_tile() +
+  labs(x = "Time (s)", y = NULL, fill = "Magnitude",  
+       title = "\"Genge\" by Relja ft. Rasta (SERBIA)") +
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+# Bulgaria
+
+chupki <-
+  get_tidy_audio_analysis("3FkA5BCzxB4SeQ7fSzUmJE") |>
+  select(segments) |>
+  unnest(segments) |>
+  select(start, duration, pitches)
+
+chupki_chroma <- chupki |>
+  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
+  compmus_gather_chroma() |> 
+  ggplot(
+    aes(
+      x = start + duration / 2,
+      width = duration,
+      y = pitch_class,
+      fill = value
+    )
+  ) +
+  geom_tile() +
+  labs(x = "Time (s)", y = NULL, fill = "Magnitude",  
+       title = "\"Chupki v krusta\" by Fiki (BULGARIA)") +
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+
+# Greece
+
+giation <-
+  get_tidy_audio_analysis("1akgNCN3yuMojAFUY3pCnY") |>
+  select(segments) |>
+  unnest(segments) |>
+  select(start, duration, pitches)
+
+giation_chroma <- giation |>
+  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
+  compmus_gather_chroma() |> 
+  ggplot(
+    aes(
+      x = start + duration / 2,
+      width = duration,
+      y = pitch_class,
+      fill = value
+    )
+  ) +
+  geom_tile() +
+  labs(x = "Time (s)", y = NULL, fill = "Magnitude",  
+       title = "\"Gia Ton Idio Anthropo Milame\" by Vasilis Karras (GREECE)") +
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+# Albania
+
+adrenalina <-
+  get_tidy_audio_analysis("5dj7Il9BkdU1gMfIveNrVH") |>
+  select(segments) |>
+  unnest(segments) |>
+  select(start, duration, pitches)
+
+adrenalina_chroma <- adrenalina |>
+  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
+  compmus_gather_chroma() |> 
+  ggplot(
+    aes(
+      x = start + duration / 2,
+      width = duration,
+      y = pitch_class,
+      fill = value
+    )
+  ) +
+  geom_tile() +
+  labs(x = "Time (s)", y = NULL, fill = "Magnitude",  
+       title = "\"Adrenalina\" by Dhurata Dora and Luciano (ALBANIA)") +
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+
+
+# Turkey
+
+askin <-
+  get_tidy_audio_analysis("4o4kbDP7DMVFPwAf5D5bj9") |>
+  select(segments) |>
+  unnest(segments) |>
+  select(start, duration, pitches)
+
+askin_chroma <- askin|>
+  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
+  compmus_gather_chroma() |> 
+  ggplot(
+    aes(
+      x = start + duration / 2,
+      width = duration,
+      y = pitch_class,
+      fill = value
+    )
+  ) +
+  geom_tile() +
+  labs(x = "Time (s)", y = NULL, fill = "Magnitude",  
+       title = "\"Aşkın Olayım\" by Simge (TURKEY)") +
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+
+grid.arrange(
+  arrangeGrob(genge_chroma,nrow=1),
+  arrangeGrob(chupki_chroma,nrow=1),
+  arrangeGrob(giation_chroma,nrow=1),
+  arrangeGrob(askin_chroma, nrow=1),
+  arrangeGrob(adrenalina_chroma, nrow=1),
+  nrow = 5
+)
+
+
+```
+
+----------------------------------------------------------------------
+
+Chromagrams of most popular songs from each country can provide some insights into some  broad pitch and harmonic tendencies that are favoured in this region. The Serbian song [“Genge” by Relja ft. Rasta]( https://open.spotify.com/album/5ghex0WSgxJuIsFzOv1pDA), demonstrates a clear pattern where C major and D minor are interchanged throughout the whole song. The chromagram is somewhat misleading in a sense that It picks up the pitch C# which is not present. Thus, this song showcases a very straightforward harmonic picture, with no visible novelties. The next song, song [“Chupki v krusta” by Fiki]( https://open.spotify.com/track/3FkA5BCzxB4SeQ7fSzUmJE) also demonstrates a rather clear pitch developments, with half a song strongly revolving around dominant G and the other half around tonic C. The next three songs, [“Gia Ton Idio Anthropo Milame” by Vasilis Karras](https://open.spotify.com/track/1akgNCN3yuMojAFUY3pCnY), song [“Askin Olayim” by Simge]( https://open.spotify.com/track/4o4kbDP7DMVFPwAf5D5bj9) and [“Adrenalina” by Dhurata Dora]( https://open.spotify.com/track/5dj7Il9BkdU1gMfIveNrVH) demonstrate a somewhat richer harmonic structure. They feature a repetitive and observable progression of chords throughout the whole duration of the track. Yet, in principle this also results in a very simplistic soundscape which confirms to the norms of popular music. What is notable is that none of these songs feature any kind of modulation, which may be seen as a popular trend that now dominates the whole region. 
+ 
+
+
+
+### Timbre and Chroma Analysis of Structure 
+
+```{r, fig.width = 5, fig.height = 15}
+
+library(tidyverse)
+library(spotifyr)
+library(compmus)
+library(gridExtra)
+
+#arrangeGrob(f1.1, f1.2, f1.3)
+
+# Serbia
+genge <-
+  get_tidy_audio_analysis("2d7aMgYuRKeGu5dzE4ZZaT") |> # Change URI.
+  compmus_align(bars, segments) |>                     # Change `bars`
+  select(bars) |>                                      #   in all three
+  unnest(bars) |>                                      #   of these lines.
+  mutate(
+    pitches =
+      map(segments,
+          compmus_summarise, pitches,
+          method = "rms", norm = "manhattan"              # Change summary & norm.
+      )
+  ) |>
+  mutate(
+    timbre =
+      map(segments,
+          compmus_summarise, timbre,
+          method = "rms", norm = "euclidean"              # Change summary & norm.
+      )
+  )
+
+genge_chroma <- genge |>
+  compmus_self_similarity(pitches, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\"Genge\" by Relja ft. Rasta (SERBIA)\nChroma") + 
+  theme(title = element_text(size = 8))
+
+genge_timbre <- genge |>
+  compmus_self_similarity(timbre, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\nTimbre") + theme(title = element_text(size = 8))
+
+# BULGARIA
+
+chupki <-
+  get_tidy_audio_analysis("3FkA5BCzxB4SeQ7fSzUmJE") |> # Change URI.
+  compmus_align(bars, segments) |>                     # Change `bars`
+  select(bars) |>                                      #   in all three
+  unnest(bars) |>                                      #   of these lines.
+  mutate(
+    pitches =
+      map(segments,
+          compmus_summarise, pitches,
+          method = "rms", norm = "manhattan"              # Change summary & norm.
+      )
+  ) |>
+  mutate(
+    timbre =
+      map(segments,
+          compmus_summarise, timbre,
+          method = "rms", norm = "euclidean"              # Change summary & norm.
+      )
+  )
+
+chupki_chroma <- chupki |>
+  compmus_self_similarity(pitches, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\"Chupki v krusta\" by Fiki (BULGARIA) \nChroma") + 
+  theme(title = element_text(size = 8))
+
+chupki_timbre <- chupki |>
+  compmus_self_similarity(timbre, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\nTimbre") + theme(title = element_text(size = 8))
+
+
+# GREECE
+
+giaton <-
+  get_tidy_audio_analysis("1akgNCN3yuMojAFUY3pCnY") |> # Change URI.
+  compmus_align(bars, segments) |>                     # Change `bars`
+  select(bars) |>                                      #   in all three
+  unnest(bars) |>                                      #   of these lines.
+  mutate(
+    pitches =
+      map(segments,
+          compmus_summarise, pitches,
+          method = "rms", norm = "manhattan"              # Change summary & norm.
+      )
+  ) |>
+  mutate(
+    timbre =
+      map(segments,
+          compmus_summarise, timbre,
+          method = "rms", norm = "euclidean"              # Change summary & norm.
+      )
+  )
+
+giaton_chroma <- giaton |>
+  compmus_self_similarity(pitches, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\"Gia Ton Idio Anthropo Milame \" by Vasilis Karras(GREECE) \nChroma") + 
+  theme(title = element_text(size = 8))
+
+giaton_timbre <- giaton |>
+  compmus_self_similarity(timbre, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\nTimbre") + theme(title = element_text(size = 8))
+
+
+# ALBANIA
+
+adrenalina <-
+  get_tidy_audio_analysis("5dj7Il9BkdU1gMfIveNrVH") |> # Change URI.
+  compmus_align(bars, segments) |>                     # Change `bars`
+  select(bars) |>                                      #   in all three
+  unnest(bars) |>                                      #   of these lines.
+  mutate(
+    pitches =
+      map(segments,
+          compmus_summarise, pitches,
+          method = "rms", norm = "manhattan"              # Change summary & norm.
+      )
+  ) |>
+  mutate(
+    timbre =
+      map(segments,
+          compmus_summarise, timbre,
+          method = "rms", norm = "euclidean"              # Change summary & norm.
+      )
+  )
+
+adrenalina_chroma <- adrenalina |>
+  compmus_self_similarity(pitches, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\"Adrenalina\" by Dhurata Dora and Luciano (ALBANIA) \nChroma") + 
+  theme(title = element_text(size = 8))
+
+adrenalina_timbre <- adrenalina |>
+  compmus_self_similarity(timbre, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\nTimbre") + theme(title = element_text(size = 8))
+
+
+# TURKEY 
+
+askin <-
+  get_tidy_audio_analysis("4o4kbDP7DMVFPwAf5D5bj9") |> # Change URI.
+  compmus_align(bars, segments) |>                     # Change `bars`
+  select(bars) |>                                      #   in all three
+  unnest(bars) |>                                      #   of these lines.
+  mutate(
+    pitches =
+      map(segments,
+          compmus_summarise, pitches,
+          method = "rms", norm = "manhattan"              # Change summary & norm.
+      )
+  ) |>
+  mutate(
+    timbre =
+      map(segments,
+          compmus_summarise, timbre,
+          method = "rms", norm = "euclidean"              # Change summary & norm.
+      )
+  )
+
+askin_chroma <- askin |>
+  compmus_self_similarity(pitches, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\"Aşkın Olayım \" by Simge (TURKEY) \nChroma") + 
+  theme(title = element_text(size = 8))
+
+askin_timbre <- askin |>
+  compmus_self_similarity(timbre, "cosine") |> # change timbre/pitches
+  ggplot(
+    aes(
+      x = xstart + xduration / 2,
+      width = xduration,
+      y = ystart + yduration / 2,
+      height = yduration,
+      fill = d
+    )
+  ) +
+  geom_tile() +
+  coord_fixed() +
+  scale_fill_viridis_c(guide = "none") +
+  theme_classic() +
+  labs(x = "", y = "", title = "\nTimbre") + theme(title = element_text(size = 8))
+
+#pdf("output.pdf", width = 10, height = 15)
+
+grid.arrange(
+  arrangeGrob(genge_chroma, genge_timbre, nrow=1),
+  arrangeGrob(chupki_chroma, chupki_timbre, nrow=1),
+  arrangeGrob(giaton_chroma, giaton_timbre, nrow=1),
+  arrangeGrob(askin_chroma, askin_timbre, nrow=1),
+  arrangeGrob(adrenalina_chroma, adrenalina_timbre, nrow=1),
+  nrow = 5
+)
+
+```
+
+--------------------------------------------------------------------------
+
+This slide is devoted to music structure analysis of the most popular songs from the corpus, each chosen from a different country. To fully understand the structure of these songs and their comparability, we need to observe both the pitch- and timbre-based self-similarity matrices. In the case of the first song [“Genge” by Relja ft. Rasta]( https://open.spotify.com/album/5ghex0WSgxJuIsFzOv1pDA), the chroma-based  similarity matrix shows small squares which indicate the ongoing switch between two chords that follows the whole song. The bridge can also be observed around 100s, as the pattern seems to be broken there. The timbre-based similarity matrix showcases repetitions more clearly, as there are three segments with the bridge dividing the second and the third. The division between the first and the second is clearly seen at around 50s, as the lines correspond to the small percussion bridge which affects both pitch and timbre. The second song [“Chupki v krusta” by Fiki]( https://open.spotify.com/track/3FkA5BCzxB4SeQ7fSzUmJE) showcases more complex structure, as observed on the timbre-based self-similarity matrix. No clear repetitions are traced, rather the places of homogeneity, which are usually prompted by the interchange of singing and instrumental parts. The pitch-based self-similarity matrix showcases one change of the dominant pitch features. The Greek representative [“Gia Ton Idio Anthropo Milame” by Vasilis Karras](https://open.spotify.com/track/1akgNCN3yuMojAFUY3pCnY) showcases a clear structure. The pitch-based self-similarity matrix showcases the structure that corresponds to the verse and chorus and which is repeated two times. The timbre-based self-similarity matrix complements the structure and showcases that the track starts with instrumental, then goes on to be sung by individual voices. The chorus is first sung in polyphony and then the melody is repeated in an instrumental form. Thus, the chorus itself corresponds to two large squares in the pitch matrix, as there seems to be no difference between singing and the instrumental with regards to pitch. As opposed to this song, the structure of the Turkish representative song [“Askin Olayim” by Simge]( https://open.spotify.com/track/4o4kbDP7DMVFPwAf5D5bj9) is more clearly observed in the timbre-based self-similarity matrix. Two big squares correspond to the singing part, while the smaller ones correspond to the instrumental. The pitch-based similarity matrix is somewhat more complex, yet it clearly demonstrates the bridge at around 130s. The last song, [“Adrenalina” by Dhurata Dora]( https://open.spotify.com/track/5dj7Il9BkdU1gMfIveNrVH) seems to be the hardest to interpret, as both its matrices do not reflect musical structure that well. Yet, certain indicators are visible, as for instance, the clear novelty at around 140s. All in all, this music structure analysis of most popular songs serves to demonstrate that some patterns can be traced. The segmentations is done in a similar way, as songs from Serbia, Turkey and Greece demonstrate a very similar structure. While this can be said for a wider scope of popular music, it is still important that most popular songs from this region share a demonstratable commonality. 
+
+
+
+
+
+
+
+
+
+Is there a relationship between tempo and popularity?{.storyboard}
+====================================================================
+
+-----------------------------------------------------------------
+
+### Tempo and popularity in Balkan music 
+  
+```{r}
+
+serbian_pop <- spotifyr::get_playlist_audio_features("", "16YmGXTlJgsXKjJ7vdlztn?si=acdd1a9c2a554f9a")
+bulgarian_pop <- spotifyr::get_playlist_audio_features("", "4YM5NoxSLOpl2VmJEwZBVY?si=92c58f2679f54bb8&nd=1")
+albanian_pop <- spotifyr::get_playlist_audio_features("", "3II2lVlx382McktFzK3hgj?si=5472e87df6984855")
+greek_pop <- spotifyr::get_playlist_audio_features("", "41G4yjL1cUJblYk6HGRLpR")
+turkish_pop <- spotifyr::get_playlist_audio_features("", "3gKQ6E9Ivq7jgF8YoIddmW?si=0b658b6b8d5e4c78")
+
+serbian_pop$country <- "SERBIA"
+bulgarian_pop$country <- "BULGARIA"
+albanian_pop$country <- "ALBANIA"
+greek_pop$country <- "GREECE"
+turkish_pop$country <- "TURKEY"
+
+total_dataset <- rbind(serbian_pop, bulgarian_pop, albanian_pop, greek_pop, turkish_pop)
+
+total_dataset_clean_cluster <- subset(total_dataset, !duplicated(track.name)) %>%
+  drop_na(track.name) %>%
+  group_by(country) %>%
+  slice(sample(n(), 150)) 
+  
+
+
+total_dataset_clean_cluster %>%    
+  filter(track.popularity != 0)%>%
   ggplot(                     
     aes(
       x = tempo,
@@ -45,14 +848,14 @@ balkan_pop |>
   ) +
   geom_point() +              # Scatter plot.
   geom_rug(linewidth = 0.1) + # Add 'fringes' to show data distribution.
-  facet_wrap(~ category) +    # Separate charts per playlist.
+  facet_wrap(~ country) +    # Separate charts per playlist.
   scale_x_continuous(         # Fine-tune the x axis.
     limits = c(50, 250),
     breaks = c(50, 100, 150, 200, 250),   # Use grid-lines for quadrants only.
     minor_breaks = NULL       
   ) +
   scale_y_continuous(
-    limits = c(0, 70)
+    limits = c(0, 100)
   ) +
   theme_light() +             # Use a simpler theme.
   labs(                       # Make the titles nice.
@@ -61,191 +864,124 @@ balkan_pop |>
     colour = "Danceability"
   )
 ```
------------------------------------------------
-This plot demonstrates the relationship between tempo and popularity of songs stemming from different Balkan countries. It mainly aims to elaborate on the question of musical taste across the Balkans, with potential reference to the songs' danceability. Overall, when it comes to selected corpora for each country, it seems that the Serbian one is the most popular, as almost all songs have the popularity index between 40 and 60. However, in order to fully grasp the music preference of each country, the popularity index pf songs should be read in relation to other songs within the same country. 
 
-Tempo: there seems to be a clear trend in the south of the Balkans, specifically in Albania and Greece, for favoring the 90-100BPM tempo. This trend seems to drop when moving towards north to Croatia and Bulgaria, as tempo becomes more versatile across the corpus.In case of Bulgaria, Croatia and Serbia, most songs are found in the range between 100 and 150BPM.What is interesting also is that former Yugoslav countries, Croatia and Serbia, don't have as many songs in the range between 150 and 200BPM as the rest of the Balkans. Overall, the versatility in tempo among the most popular songs seems to coincide in the case of Croatia, Albania and Greece. 
+---------------------------------------------------------------
 
-Danceability: if observed within each category, most popular songs more often score high on the danceability scale than not.
+As stated in the beginning, one of the most distinctive features of music from this region is the rhythm and its overall temporal dimension. This plot demonstrates the relationship between tempo and popularity of selected songs. There seems to be a clear trend for favouring the 90-100BPM tempo, as the points seem to be most dense there in all countries. In Bulgaria, there seems to be another preference for 1500BPM. However, the domain of popular music in all of these countries seems to depend on a somewhat versatile tempos, which again may be brought back to the danceability of these corpora. For the danceability to be favourable feature of these cultures, there needs to be an interdependence of songs in order for them to prompt novelties which are required for people to dance to. It can also be said that the songs that score higher on the popularity scale are more often rated more danceable than not, which is also an observation that supports the hypothesis. 
 
-#### Tempogram of the Most Popular Song in the Corpus "Sava i Dunav" 
+### Tempograms of most popular songs  
 
 ```{r}
 library(tidyverse)
 library(spotifyr)
 library(compmus)
 
-sava_i_dunav <- get_tidy_audio_analysis("64IFiUCsksRiHrUwfPKw6H")
+#tempogram svih pesama
 
-sava_i_dunav |>
+
+# SERBIA 
+
+genge <- get_tidy_audio_analysis("2d7aMgYuRKeGu5dzE4ZZaT")
+
+genge_tempogram <- genge |>
   tempogram(window_size = 8, hop_size = 1, cyclic = FALSE) |>
   ggplot(aes(x = time, y = bpm, fill = power)) +
   geom_raster() +
   scale_fill_viridis_c(guide = "none") +
   labs(x = "Time (s)", y = "Tempo (BPM)") +
   theme_classic()
-```
-------------------------------------
-This tempogram showcases the song with the highest popularity index within the entire corpus - which is a song "Sava i Dunav" from the Serbian corpus. Although Spotify assigned this song a tempo of 109.989BPM, this tempogram showcases two of its tempo octaves, where the one around 220BPM seems to be the dominant one. Although a song with such a high tempo is not commonly recognized as that popular, this one may have gained such status due to it being a tempo outlier. 
 
-The tempo seems to be steady throughout the whole song, with two breaks corresponding to the absence of beat for 5 seconds. 
+#BULGARIA
+
+chupki <- get_tidy_audio_analysis("3FkA5BCzxB4SeQ7fSzUmJE")
+
+chupki_tempogram <- chupki |>
+  tempogram(window_size = 8, hop_size = 1, cyclic = FALSE) |>
+  ggplot(aes(x = time, y = bpm, fill = power)) +
+  geom_raster() +
+  scale_fill_viridis_c(guide = "none") +
+  labs(x = "Time (s)", y = "Tempo (BPM)") +
+  theme_classic()
+
+#GREECE
+
+giaton <-
+  get_tidy_audio_analysis("1akgNCN3yuMojAFUY3pCnY")
+
+giaton_tempogram <- giaton |>
+  tempogram(window_size = 8, hop_size = 1, cyclic = FALSE) |>
+  ggplot(aes(x = time, y = bpm, fill = power)) +
+  geom_raster() +
+  scale_fill_viridis_c(guide = "none") +
+  labs(x = "Time (s)", y = "Tempo (BPM)") +
+  theme_classic()
+
+# ALBANIA 
+
+adrenalina <-
+  get_tidy_audio_analysis("5dj7Il9BkdU1gMfIveNrVH")
+
+adrenalina_tempogram <- adrenalina |>
+  tempogram(window_size = 8, hop_size = 1, cyclic = FALSE) |>
+  ggplot(aes(x = time, y = bpm, fill = power)) +
+  geom_raster() +
+  scale_fill_viridis_c(guide = "none") +
+  labs(x = "Time (s)", y = "Tempo (BPM)") +
+  theme_classic()
+
+#TURKEY
+
+askin <-
+  get_tidy_audio_analysis("4o4kbDP7DMVFPwAf5D5bj9")
+
+askin_tempogram <- askin |>
+  tempogram(window_size = 8, hop_size = 1, cyclic = FALSE) |>
+  ggplot(aes(x = time, y = bpm, fill = power)) +
+  geom_raster() +
+  scale_fill_viridis_c(guide = "none") +
+  labs(x = "Time (s)", y = "Tempo (BPM)") +
+  theme_classic()
 
 
-
-### Chromograms of Representative Songs {.storyboard}
-
-#### Hanuma
-  
-```{r} 
-library(tidyverse)
-library(spotifyr)
-library(ggplot2)
-library(dplyr)
-library(compmus) 
-library(purrr)
-hanuma <-
-  get_tidy_audio_analysis("6MdJxslHXQkcLm2swuZrFb") |>
-  select(segments) |>
-  unnest(segments) |>
-  select(start, duration, pitches)
-
-hanuma |>
-  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
-  compmus_gather_chroma() |> 
-  ggplot(
-    aes(
-      x = start + duration / 2,
-      width = duration,
-      y = pitch_class,
-      fill = value
-    )
-  ) +
-  geom_tile() +
-  labs(x = "Time (s)", y = NULL, fill = "Magnitude") +
-  theme_minimal() +
-  scale_fill_viridis_c()
-
-```
- 
-------------------------------------------------------
- 
- These two chromograms showcase representative songs
-for each corpus. As observed, the song Hanuma
-showcases harmonic emphasis of the tonic and the fifth, 
-while the song Dani su bez broja apprear to have a more homogeneous 
-distribution of pitch, 
-with a steady employment of the 
-base note. 
-
-#### Dani su bez broja
-
-```{r} 
-library(tidyverse)
-library(spotifyr)
-library(ggplot2)
-library(dplyr)
-library(compmus) 
-library(purrr)
-dani_su_bez_broja <-
-  get_tidy_audio_analysis("441S5TX0FNPrRvVc4OZidx") |>
-  select(segments) |>
-  unnest(segments) |>
-  select(start, duration, pitches)
-
-dani_su_bez_broja |>
-  mutate(pitches = map(pitches, compmus_normalise, "euclidean")) |>
-  compmus_gather_chroma() |> 
-  ggplot(
-    aes(
-      x = start + duration / 2,
-      width = duration,
-      y = pitch_class,
-      fill = value
-    )
-  ) +
-  geom_tile() +
-  labs(x = "Time (s)", y = NULL, fill = "Magnitude") +
-  theme_minimal() +
-  scale_fill_viridis_c()
+grid.arrange(
+  arrangeGrob(genge_tempogram,chupki_tempogram, nrow=1),
+  arrangeGrob(giaton_tempogram,askin_tempogram, nrow=1),
+  arrangeGrob(adrenalina_tempogram, nrow=1),
+  nrow = 3
+)
 
 ```
 
-### Observable Differences 
+------------------------------------------------------------------
 
-```{r} 
-library(tidyverse)
-library(spotifyr)
-library(ggplot2)
-library(dplyr)
-library(compmus) 
-library(purrr)
-serbian_pop <- spotifyr::get_playlist_audio_features("", "0KsWyEIsJpyZtP1PgQVvOD")
-croatian_pop <- spotifyr::get_playlist_audio_features("", "1iqFmUPFuPpBVgvrWccMVW")
+This slide showcases an overview of tempograms of most popular songs from the given country corpora. Interestingly, these selected popular songs seem to have a rather similar tempo around 150BPM, which can be considered somewhat fast. All tempograms however, showcase the tempo harmonics, precisely the tempo octave. The Serbian song demonstrates an uninterrupted and unchangeable tempo. Similarly, the Bulgarian song manifests the same behaviour, even though a lower and correct tempo octave seems to appear in certain instances. The Greek song also has constant tempo, yet the tempogram struggles to visualize the parts of the song without a steady percussion accompaniment. This also occurs both in the Albanian song (shown last), which is also visible on the tempogram. Turkish song features certain deviations from the main tempo in some instances, which are also seen on the tempogram. Overall, there is a preference for constant and uninterrupted tempos, but It occurs that a song with weaker tempo stability may also gain popularity. 
 
-balkan_pop <-
-  bind_rows(
-    serbian_pop |> mutate(category = "Serbian Pop"),
-    croatian_pop |> mutate(category = "Croatian Pop")
-  )
 
-balkan_pop |>                    # Start with awards.
-  mutate(
-    mode = ifelse(mode == 0, "Minor", "Major")
-  ) |>
-  ggplot(                     # Set up the plot.
-    aes(
-      x = valence,
-      y = energy,
-      size = loudness,
-      colour = mode
-    )
-  ) +
-  geom_point() +              # Scatter plot.
-  geom_rug(linewidth = 0.1) + # Add 'fringes' to show data distribution.
-  geom_text(                  # Add text labels from above.
-    aes(
-      x = valence,
-      y = energy,
-      label = label
-    ),
-    data = 
-      tibble(
-        label = c("more clustered", "more dispersed"),
-        category = c("Serbian Pop", "Croatian Pop"),
-        valence = c(0.090, 0.123),
-        energy = c(0.101, 0.967)
-      ),
-    colour = "black",         # Override colour (not mode here).
-    size = 3,                 # Override size (not loudness here).
-    hjust = "left",           # Align left side of label with the point.
-    vjust = "bottom",         # Align bottom of label with the point.
-    nudge_x = -0.05,          # Nudge the label slightly left.
-    nudge_y = 0.02            # Nudge the label slightly up.
-  ) +
-  facet_wrap(~ category) +    # Separate charts per playlist.
-  scale_x_continuous(         # Fine-tune the x axis.
-    limits = c(0, 1),
-    breaks = c(0, 0.50, 1),   # Use grid-lines for quadrants only.
-    minor_breaks = NULL       # Remove 'minor' grid-lines.
-  ) +
-  scale_y_continuous(         # Fine-tune the y axis in the same way.
-    limits = c(0, 1),
-    breaks = c(0, 0.50, 1),
-    minor_breaks = NULL
-  ) +
-  scale_colour_brewer(        # Use the Color Brewer to choose a palette.
-    type = "qual",            # Qualitative set.
-    palette = "Paired"        # Name of the palette is 'Paired'.
-  ) +
-  scale_size_continuous(      # Fine-tune the sizes of each point.
-    trans = "exp",            # Use an exp transformation to emphasise loud.
-    guide = "none"            # Remove the legend for size.
-  ) +
-  theme_light() +             # Use a simpler theme.
-  labs(                       # Make the titles nice.
-    x = "Valence",
-    y = "Energy",
-    colour = "Mode"
-  )
-```
 
+
+
+Summary{.storyboard}
+=================================================
+
+--------------------------------------------------
+
+
+
+
+--------------------------------------------------------------
+
+### To what extent does music of different Balkan countries manifest the homogeneity of taste across this region?
+
+This dashboard showcased several perspectives which shed light on the differences and similarities between Balkan popular music. Certain trends could be observed both on country level features which generally represent the selection of popular songs, as well as on track level features which represent the songs which scored the highest on the popularity index. If these corpora and representative tracks are taken as reflection of taste from these country’s listeners, than it can be argued that geographical proximity compensates for at least some of the cultural differences among these countries. Simple harmony and structure, danceability and tempo versatility as well as  comparable loudness between pairs of countries can serve as a proof that some features are indeed similar. On the other hand, dendrogram and random forest matrix showcase that certain corpora are more distinguished based on audio features, which to some extent rebuffs their overall homogeneity. In conclusion, this dashboard demonstrated a template for analysing Balkan popular music, which can be further enhanced by choosing different sets of corpora, which would showcase more perspectives on music from this region and enhance the overall scientific body of knowledge on this topic. 
+
+Playlists: 
+
+1. https://open.spotify.com/embed/playlist/16YmGXTlJgsXKjJ7vdlztn?utm_source=generator
+
+2. https://open.spotify.com/embed/playlist/4YM5NoxSLOpl2VmJEwZBVY?utm_source=generator
+
+3. https://open.spotify.com/embed/playlist/3II2lVlx382McktFzK3hgj?utm_source=generator
+
+4. https://open.spotify.com/embed/playlist/41G4yjL1cUJblYk6HGRLpR?utm_source=generator
+
+5. https://open.spotify.com/embed/playlist/3gKQ6E9Ivq7jgF8YoIddmW?utm_source=generator
